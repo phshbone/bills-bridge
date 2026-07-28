@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bill's App Maker — Incoming Assets</title>
+<style>
+:root{--bg:#070b18;--panel:#111a2e;--panel2:#18243e;--line:#2a3855;--text:#edf4ff;--muted:#9caac2;--blue:#4ea5ff;--green:#4ed18a}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#070b18,#101936);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;height:100vh;overflow:hidden}
+header{height:58px;padding:10px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;background:#0a1225}
+h1{font-size:19px;margin:0}.spacer{flex:1}button,input{font:inherit}button{border:1px solid var(--line);background:#182945;color:var(--text);padding:9px 12px;border-radius:11px;cursor:pointer}
+button.good{border-color:var(--green);background:#173d2b}.layout{height:calc(100vh - 58px);display:grid;grid-template-columns:300px 1fr}
+aside{border-right:1px solid var(--line);background:#0e172a;overflow:auto;padding:14px}.workspace{position:relative;overflow:auto;background-color:#0b1225;background-image:radial-gradient(rgba(255,255,255,.08) 1px,transparent 1px);background-size:22px 22px}
+#canvas{position:relative;width:1800px;height:1400px}.frame{position:absolute;left:220px;top:110px;width:390px;height:844px;background:#f5f7fc;border:10px solid #1a2235;border-radius:38px;box-shadow:0 25px 70px rgba(0,0,0,.45);overflow:hidden}
+.asset-card{border:1px solid var(--line);background:#121e34;border-radius:14px;padding:10px;margin-bottom:10px}.thumb{height:130px;background:#08111f;border-radius:10px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:8px}.thumb img{max-width:100%;max-height:100%;object-fit:contain}
+.meta{font-size:12px;color:var(--muted);margin:4px 0}.row{display:flex;gap:7px;flex-wrap:wrap}.row button{flex:1;padding:7px}.placed{position:absolute;width:180px;height:150px;left:80px;top:130px;border:2px dashed #4ea5ff;display:flex;align-items:center;justify-content:center;cursor:grab;touch-action:none}.placed img{width:100%;height:100%;object-fit:contain;pointer-events:none}
+label{font-size:12px;color:var(--muted);display:block;margin:10px 0 5px}input{width:100%;background:#08111f;border:1px solid var(--line);color:var(--text);padding:9px;border-radius:9px}
+.empty{padding:18px;border:1px dashed #3a4a68;border-radius:12px;color:var(--muted);text-align:center}
+.badge{display:inline-block;background:#184f87;border:1px solid #4ea5ff;border-radius:999px;padding:3px 8px;font-size:12px}
+@media(max-width:720px){
+ body{overflow:auto}.layout{height:auto;display:block}.workspace{height:70vh}.frame{left:70px;top:60px;transform:scale(.72);transform-origin:top left}
+ aside{border-right:0;border-bottom:1px solid var(--line)}header .optional{display:none}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>bill's app maker</h1><span class="badge" id="badge">0 incoming</span>
+  <div class="spacer"></div>
+  <button class="optional" id="refreshBtn">Refresh</button>
+  <button id="backBtn">Back to Image Lab</button>
+</header>
+<div class="layout">
+  <aside>
+    <h3>Incoming Assets</h3>
+    <label>Apps Script URL (leave blank for demo mode)</label>
+    <input id="endpoint" placeholder="https://script.google.com/macros/s/.../exec">
+    <div class="row" style="margin:10px 0"><button class="good" id="loadBtn">Load Incoming</button></div>
+    <div id="assetList"></div>
+  </aside>
+  <main class="workspace">
+    <div id="canvas">
+      <div class="frame" id="phoneFrame"></div>
+    </div>
+  </main>
+</div>
+<script>
+const listEl=document.getElementById('assetList'), badge=document.getElementById('badge'), frame=document.getElementById('phoneFrame');
+let incoming=[];
+
+async function loadIncoming(){
+  const url=endpoint.value.trim();
+  listEl.innerHTML='<div class="empty">Loading…</div>';
+  try{
+    if(!url){
+      incoming=JSON.parse(localStorage.getItem('billsUniverseAssets')||'[]')
+        .filter(a=>a.destinationApp==='bills-app-maker'&&a.status==='incoming');
+    }else{
+      const res=await fetch(url+'?action=listIncoming&destinationApp=bills-app-maker');
+      const data=await res.json(); if(!data.ok)throw new Error(data.error||'Load failed');
+      incoming=data.assets||[];
+    }
+    render();
+    const wanted=new URLSearchParams(location.search).get('incoming');
+    if(wanted){const found=incoming.find(a=>a.assetId===wanted);if(found)previewAsset(found)}
+  }catch(err){listEl.innerHTML='<div class="empty">Could not load assets: '+err.message+'</div>'}
+}
+
+function render(){
+  badge.textContent=incoming.length+' incoming';
+  if(!incoming.length){listEl.innerHTML='<div class="empty">No incoming assets.</div>';return}
+  listEl.innerHTML='';
+  incoming.forEach(a=>{
+    const d=document.createElement('div');d.className='asset-card';
+    const src=a.dataUrl||a.dataUrlPublic||'';
+    d.innerHTML='<div class="thumb">'+(src?'<img src="'+src+'" alt="">':'No preview')+'</div>'+
+      '<strong>'+escapeHtml(a.name)+'</strong>'+
+      '<div class="meta">From: '+escapeHtml(a.sourceApp||'unknown')+'</div>'+
+      '<div class="meta">Project: '+escapeHtml(a.project||'Unassigned')+'</div>'+
+      '<div class="row"><button data-act="preview">Preview</button><button class="good" data-act="add">Add to Project</button></div>';
+    d.querySelector('[data-act=preview]').onclick=()=>previewAsset(a);
+    d.querySelector('[data-act=add]').onclick=()=>addToProject(a);
+    listEl.appendChild(d);
+  })
+}
+
+function previewAsset(a){
+  const old=document.getElementById('previewOnly'); if(old)old.remove();
+  const box=document.createElement('div');box.id='previewOnly';box.className='placed';box.style.left='105px';box.style.top='190px';
+  box.innerHTML='<img src="'+(a.dataUrl||a.dataUrlPublic||'')+'" alt="">';frame.appendChild(box);
+}
+
+async function addToProject(a){
+  const box=document.createElement('div');box.className='placed';box.style.left='105px';box.style.top=(120+frame.querySelectorAll('.placed').length*35)+'px';
+  box.innerHTML='<img src="'+(a.dataUrl||a.dataUrlPublic||'')+'" alt="">';box.dataset.assetId=a.assetId;frame.appendChild(box);makeDraggable(box);
+  await markAccepted(a);
+  incoming=incoming.filter(x=>x.assetId!==a.assetId);render();
+}
+
+function makeDraggable(el){
+ let s=null;
+ el.addEventListener('pointerdown',e=>{s={x:e.clientX,y:e.clientY,l:parseFloat(el.style.left)||0,t:parseFloat(el.style.top)||0};el.setPointerCapture(e.pointerId)});
+ el.addEventListener('pointermove',e=>{if(!s)return;el.style.left=(s.l+e.clientX-s.x)+'px';el.style.top=(s.t+e.clientY-s.y)+'px'});
+ el.addEventListener('pointerup',()=>s=null);
+}
+
+async function markAccepted(a){
+ const url=endpoint.value.trim();
+ if(!url){
+   const all=JSON.parse(localStorage.getItem('billsUniverseAssets')||'[]');
+   const found=all.find(x=>x.assetId===a.assetId);if(found)found.status='accepted';
+   localStorage.setItem('billsUniverseAssets',JSON.stringify(all));
+ }else{
+   await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'acceptAsset',assetId:a.assetId})});
+ }
+}
+function escapeHtml(s){return String(s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))}
+loadBtn.onclick=loadIncoming;refreshBtn.onclick=loadIncoming;backBtn.onclick=()=>location.href='image-lab-bridge.html';
+loadIncoming();
+</script>
+</body>
+</html>

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bill's Image Lab — Universe Sender</title>
+<style>
+:root{--bg:#08111f;--panel:#111d31;--line:#2b3b57;--text:#edf4ff;--muted:#9fb0c9;--blue:#4ea5ff;--green:#4ed18a}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#07101d,#111a34);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;min-height:100vh}
+header{padding:14px 16px;border-bottom:1px solid var(--line);background:#0a1425;display:flex;align-items:center;justify-content:space-between}
+main{max-width:900px;margin:auto;padding:18px}.card{background:rgba(17,29,49,.95);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:14px}
+h1{font-size:20px;margin:0}h2{font-size:15px;margin:0 0 12px;color:#cfe2ff}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+label{display:block;color:var(--muted);font-size:12px;margin:8px 0 5px}input,select,button{font:inherit}
+input,select{width:100%;background:#08111f;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px}
+button{border:1px solid var(--line);border-radius:12px;background:#172846;color:var(--text);padding:10px 14px;cursor:pointer}
+button.primary{background:#184f87;border-color:#4ea5ff}button.good{background:#17402d;border-color:#4ed18a}
+.preview{min-height:240px;border:1px dashed #405273;border-radius:15px;display:flex;align-items:center;justify-content:center;background:#08111f;overflow:hidden}
+.preview img{max-width:100%;max-height:360px;object-fit:contain}.muted{color:var(--muted);font-size:13px}.row{display:flex;gap:10px;flex-wrap:wrap}.status{margin-top:12px;padding:10px;border-radius:10px;background:#08111f;color:#cfe2ff;white-space:pre-wrap}
+@media(max-width:680px){.grid{grid-template-columns:1fr}.row button{flex:1}}
+</style>
+</head>
+<body>
+<header><h1>bill's image lab — send to universe</h1><span class="muted">bridge prototype</span></header>
+<main>
+  <section class="card">
+    <h2>1. Choose the finished image</h2>
+    <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp">
+    <div class="preview" id="preview"><span class="muted">Image preview</span></div>
+  </section>
+
+  <section class="card">
+    <h2>2. Asset details</h2>
+    <div class="grid">
+      <div><label>Asset name</label><input id="assetName" placeholder="Mollie elf portrait"></div>
+      <div><label>Project</label><input id="project" placeholder="Christmas List"></div>
+      <div><label>Destination app</label>
+        <select id="destination"><option value="bills-app-maker">Bill's App Maker</option><option value="living-junk-drawer">Living Junk Drawer</option></select>
+      </div>
+      <div><label>Tags</label><input id="tags" placeholder="portrait, elf, transparent"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>3. Connection</h2>
+    <label>Apps Script web app URL (leave blank for same-browser demo mode)</label>
+    <input id="endpoint" placeholder="https://script.google.com/macros/s/.../exec">
+    <p class="muted">Demo mode stores the asset in this browser. Cloud mode sends it to Google Drive through Apps Script.</p>
+    <div class="row">
+      <button class="good" id="sendBtn">Send to Bill's Universe</button>
+      <button class="primary" id="openBtn">Open App Maker</button>
+    </div>
+    <div class="status" id="status">Waiting for an image.</div>
+  </section>
+</main>
+<script>
+const fileInput=document.getElementById('fileInput'), preview=document.getElementById('preview');
+const statusEl=document.getElementById('status'); let fileData=null, mimeType='', fileName='';
+
+fileInput.addEventListener('change',()=>{
+  const f=fileInput.files[0]; if(!f)return;
+  fileName=f.name; mimeType=f.type||'image/png';
+  if(!assetName.value) assetName.value=f.name.replace(/\.[^.]+$/,'');
+  const r=new FileReader();
+  r.onload=()=>{fileData=r.result;preview.innerHTML='<img src="'+fileData+'" alt="preview">';statusEl.textContent='Ready to send.'};
+  r.readAsDataURL(f);
+});
+
+function makeRecord(){
+  return {
+    assetId:'asset_'+Date.now(),
+    name:assetName.value.trim()||fileName||'Untitled asset',
+    mimeType,
+    sourceApp:'bills-image-lab',
+    destinationApp:destination.value,
+    project:project.value.trim(),
+    tags:tags.value.split(',').map(s=>s.trim()).filter(Boolean),
+    createdAt:new Date().toISOString(),
+    status:'incoming',
+    dataUrl:fileData
+  };
+}
+
+sendBtn.onclick=async()=>{
+  if(!fileData){statusEl.textContent='Choose an image first.';return}
+  const record=makeRecord(), url=endpoint.value.trim();
+  sendBtn.disabled=true; statusEl.textContent='Sending…';
+  try{
+    if(!url){
+      const key='billsUniverseAssets';
+      const list=JSON.parse(localStorage.getItem(key)||'[]');
+      list.unshift(record); localStorage.setItem(key,JSON.stringify(list));
+      localStorage.setItem('billsUniverseLatestAsset',record.assetId);
+      statusEl.textContent='Sent in demo mode.\nAsset ID: '+record.assetId+'\nOpen App Maker in the same browser and same website folder.';
+    }else{
+      const payload={...record,fileBase64:fileData.split(',')[1],dataUrl:undefined};
+      const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'uploadAsset',...payload})});
+      const data=await res.json();
+      if(!data.ok) throw new Error(data.error||'Upload failed');
+      localStorage.setItem('billsUniverseLatestAsset',data.asset.assetId);
+      statusEl.textContent='Sent to Google Drive.\nAsset ID: '+data.asset.assetId;
+    }
+  }catch(err){statusEl.textContent='Send failed: '+err.message}
+  finally{sendBtn.disabled=false}
+};
+
+openBtn.onclick=()=>{
+  const id=localStorage.getItem('billsUniverseLatestAsset')||'';
+  const target='app-maker-bridge.html'+(id?'?incoming='+encodeURIComponent(id):'');
+  location.href=target;
+};
+</script>
+</body>
+</html>
